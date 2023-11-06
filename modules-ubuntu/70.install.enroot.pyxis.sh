@@ -7,15 +7,12 @@ source "/etc/parallelcluster/cfnconfig"
 installENROOT() {
 
   arch=$(dpkg --print-architecture)
-  curl -fSsL -O https://github.com/NVIDIA/enroot/releases/download/v3.4.0/enroot_3.4.0-1_${arch}.deb
-  curl -fSsL -O https://github.com/NVIDIA/enroot/releases/download/v3.4.0/enroot+caps_3.4.0-1_${arch}.deb # optional
-  sudo apt install -y ./*.deb
-  # enable pmi and pytorch hooks for enroot
-  # cp /usr/share/enroot/hooks.d/50-slurm-pmi.sh /usr/share/enroot/hooks.d/50-slurm-pytorch.sh /etc/enroot/hooks.d #this cannot find scontrol
-  # fix missing path for slurm pmi hooks
-  echo "PATH=/opt/slurm/sbin:/opt/slurm/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin" >> /etc/sysconfig/slurmd
+  curl -fSsL -O https://github.com/NVIDIA/enroot/releases/download/v3.4.1/enroot_3.4.1-1_${arch}.deb
+  curl -fSsL -O https://github.com/NVIDIA/enroot/releases/download/v3.4.1/enroot+caps_3.4.1-1_${arch}.deb # optional
+  sudo apt-get -q -o DPkg::Lock::Timeout=240 install -y ./enroot*.deb
 
-  mkdir -p /scratch && chmod -R 777 /scratch
+  mkdir -p /scratch && chmod -R 1777 /scratch
+  mkdir -p /scratch/enroot && chmod -R 1777 /scratch/enroot
 
   # slurm 22.05 requires pyxis to be recompiled against slurm.h so the below includes now the spank.h location
   git clone https://github.com/NVIDIA/pyxis.git /tmp/pyxis
@@ -31,11 +28,11 @@ installENROOT() {
   cat > /etc/enroot/enroot.conf << EOF
 #ENROOT_LIBRARY_PATH       /usr/lib/enroot
 #ENROOT_SYSCONF_PATH       /etc/enroot
-ENROOT_RUNTIME_PATH        /run/enroot/user-\$(id -u)
-ENROOT_CONFIG_PATH         ${HOME}/enroot
-ENROOT_CACHE_PATH          /tmp/group-\$(id -g)
-ENROOT_DATA_PATH           /tmp/enroot-data/user-\$(id -u)
-#ENROOT_TEMP_PATH          ${TMPDIR:-/tmp}
+ENROOT_RUNTIME_PATH        /scratch/enroot/run-user-\$(id -u)
+ENROOT_CONFIG_PATH         \${HOME}/enroot
+ENROOT_CACHE_PATH          /scratch/enroot/cache-user-\$(id -u)
+ENROOT_DATA_PATH           /scratch/enroot/data-user-\$(id -u)
+#ENROOT_TEMP_PATH          \${TMPDIR:-/scratch}
 
 # Gzip program used to uncompress digest layers.
 #ENROOT_GZIP_PROGRAM        gzip
@@ -53,7 +50,7 @@ ENROOT_ROOTFS_WRITABLE     yes
 #ENROOT_REMAP_ROOT          no
 
 # Maximum number of processors to use for parallel tasks (0 means unlimited).
-#ENROOT_MAX_PROCESSORS      $(nproc)
+#ENROOT_MAX_PROCESSORS      \$(nproc)
 
 # Maximum number of concurrent connections (0 means unlimited).
 #ENROOT_MAX_CONNECTIONS     10
@@ -142,7 +139,7 @@ activateNkernels () {
 main() {
     echo "[INFO][$(date '+%Y-%m-%d %H:%M:%S')] 70.install.enroot.pyxis.sh: START" >&2
     installENROOT
-    activateNkernels
+    #activateNkernels
     echo "[INFO][$(date '+%Y-%m-%d %H:%M:%S')] 70.install.enroot.pyxis.sh: STOP" >&2
 }
 

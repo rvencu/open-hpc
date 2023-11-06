@@ -14,8 +14,7 @@
 # PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
 # HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-# SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
+# SOFTWARE OR THE USE OR OTHER DEALINGS I
 set -x
 set -e
 source '/etc/parallelcluster/cfnconfig'
@@ -23,10 +22,12 @@ source '/etc/parallelcluster/cfnconfig'
 configureFederatedSlurmDBD(){
     # slurm accounting must be preinstalled in the VPC.
     # slurm accouting secrets must be defined
+    # SLURM_ETC is missing from the environment
+    SLURM_ETC=/opt/slurm/etc
     cp /tmp/hpc/sacct/slurm/slurm_fed_sacct.conf /tmp/ || exit 1
     cp /tmp/hpc/sacct/slurm/munge.key.gpg /tmp/ || exit 1
-    export SLURM_FED_DBD_HOST="$(aws secretsmanager get-secret-value --secret-id "SLURM_FED_DBD_PCLUSTER_WEST" --query SecretString --output text --region us-east-1)"
-    export SLURM_FED_PASSPHRASE="$(aws secretsmanager get-secret-value --secret-id "SLURM_FED_PASSPHRASE" --query SecretString --output text --region us-east-1)"
+    export SLURM_FED_DBD_HOST="$(aws secretsmanager get-secret-value --secret-id "SLURM_FED_DBD_PCLUSTER_WEST" --query SecretString --output text --region ${cfn_region} --cli-connect-timeout 1)"
+    export SLURM_FED_PASSPHRASE="$(aws secretsmanager get-secret-value --secret-id "SLURM_FED_PASSPHRASE" --query SecretString --output text --region ${cfn_region} --cli-connect-timeout 1)"
     /usr/bin/envsubst < /tmp/slurm_fed_sacct.conf > "${SLURM_ETC}/slurm_sacct.conf"
     echo "include slurm_sacct.conf" >> "${SLURM_ETC}/slurm.conf"
     gpg --batch --ignore-mdc-error --passphrase "$SLURM_FED_PASSPHRASE" -d -o /tmp/munge.key /tmp/munge.key.gpg
@@ -68,7 +69,8 @@ installLuaSubmit() {
     /usr/local/bin/luarocks install --tree  . luasocket
     /usr/local/bin/luarocks install --tree . redis-lua 
     /usr/local/bin/luarocks install --tree . lua-cjson
-    export token="$(aws secretsmanager get-secret-value --secret-id "ADtokenPSU" --query SecretString --output text --region "${cfn_region}")"
+    export token="$(aws secretsmanager get-secret-value --secret-id "ADtokenPSU" --query SecretString --output text --region ${cfn_region})"
+    export AD_API_BASE="$(aws secretsmanager get-secret-value --secret-id "AD_API_BASE" --query SecretString --output text --region ${cfn_region})"
 
 cat > /opt/slurm/etc/job_submit.lua << EOF
 local redis = require 'redis'
@@ -84,7 +86,7 @@ function getNumber(str)
 end
 
 function apiCall(user, cluster, project, ngpu)
-    local path = "http://internal-Int-AD-API-2115331254.us-east-1.elb.amazonaws.com/authnew"
+    local path = "http://".."$AD_API_BASE".."/authnew"
     local payload = '{"user": "'..user..'", "parameters": {"cluster": "'..cluster..'", "project": "'..project..'"}, "numGpus": '..ngpu..'}'
     local response_body = { }
     local tab = { }
@@ -148,11 +150,28 @@ function slurm_job_submit(job_desc, submit_uid)
         slurm.user_msg(tab.message)
         return slurm.ESLURM_INVALID_ACCOUNT
     else
-        handle = io.popen("/opt/slurm/bin/sacctmgr show assoc format=qos where account=" .. job_desc.account .. ", user=" .. job_desc.user_name .. ", cluster=" .. stability_cluster .. " -n -P")
-        result = handle:read("*a")
-        handle:close()
-        job_desc.qos = string.gsub(result, '%s+', '')
-        if (tab.email ~= nil) then
+        if job_desc.qos == nil then
+            handle = io.popen("/opt/slurm/bin/sacctmgr show assoc format=defaultqos where account=" .. job_desc.account .. ", user=" .. job_desc.user_name .. ", cluster=" .. stability_cluster .. " -n -P")
+            result = handle:read("*a")
+            handle:close()
+            job_desc.qos = string.gsub(result, '%s+', '')
+        else
+            goodqos = false
+            handle = io.popen("/opt/slurm/bin/sacctmgr show assoc format=qos where account=" .. job_desc.account .. ", user=" .. job_desc.user_name .. ", cluster=" .. stability_cluster .. " -n -P")
+            result = handle:read("*a")
+            handle:close()
+            for w in string.gsub(result, '%s+', ''):gmatch("([^,]+)") do 
+                if w == job_desc.qos then
+                    goodqos = true
+                    break
+                end
+            end
+            if goodqos == false then
+                slurm.user_msg("[error] You cannot use the QOS " .. job_desc.qos .. " for this project. Please use one of the following: " .. result)
+                return slurm.ESLURM_INVALID_ACCOUNT
+            end
+        end
+        if (tab.email ~= nil and job_desc.user_name ~= "root") then
             job_desc.mail_type = 1295
             job_desc.mail_user = tab.email
         end
@@ -176,11 +195,28 @@ function slurm_job_modify(job_desc, job_rec, modify_uid)
         slurm.user_msg(tab.message)
         return slurm.ESLURM_INVALID_ACCOUNT
     else
-        handle = io.popen("/opt/slurm/bin/sacctmgr show assoc format=qos where account=" .. job_desc.account .. ", user=" .. job_desc.user_name .. ", cluster=" .. stability_cluster .. " -n -P")
-        result = handle:read("*a")
-        handle:close()
-        job_desc.qos = string.gsub(result, '%s+', '')
-        if (tab.email ~= nil) then
+        if job_desc.qos == nil then
+            handle = io.popen("/opt/slurm/bin/sacctmgr show assoc format=defaultqos where account=" .. job_desc.account .. ", user=" .. job_desc.user_name .. ", cluster=" .. stability_cluster .. " -n -P")
+            result = handle:read("*a")
+            handle:close()
+            job_desc.qos = string.gsub(result, '%s+', '')
+        else
+            goodqos = false
+            handle = io.popen("/opt/slurm/bin/sacctmgr show assoc format=qos where account=" .. job_desc.account .. ", user=" .. job_desc.user_name .. ", cluster=" .. stability_cluster .. " -n -P")
+            result = handle:read("*a")
+            handle:close()
+            for w in string.gsub(result, '%s+', ''):gmatch("([^,]+)") do 
+                if w == job_desc.qos then
+                    goodqos = true
+                    break
+                end
+            end
+            if goodqos == false then
+                slurm.user_msg("[error] You cannot use the QOS " .. job_desc.qos .. " for this project. Please use one of the following: " .. result)
+                return slurm.ESLURM_INVALID_ACCOUNT
+            end
+        end
+        if (tab.email ~= nil and job_desc.user_name ~= "root") then
             job_desc.mail_type = 1295
             job_desc.mail_user = tab.email
         end

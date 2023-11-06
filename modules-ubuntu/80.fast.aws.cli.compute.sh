@@ -24,6 +24,26 @@ makeLUSTREfast() {
     (crontab -u $(whoami) -l; echo "$line" ) | crontab -u $(whoami) -
 }
 
+makeDockerfast() {
+    sudo apt install -y docker.io
+    cluster=$(cat /opt/slurm/etc/slurm.conf | grep ClusterName | cut -d'=' -f2 | xargs | sed -e "s/^hpc-1click-//")
+    docker_group=$(grep docker /etc/group | cut -d':' -f3)
+    case $cluster in
+        spark | westcpu2)
+            docker_group=424402651
+        ;;
+        ingress-west | externalcpu-west)
+            #docker_group=997
+        ;;
+    esac
+    sudo systemctl stop docker
+    sudo mkdir -p /etc/systemd/system/docker.socket.d
+    echo -e "[Socket]\nSocketGroup=$docker_group" | sudo tee /etc/systemd/system/docker.socket.d/override.conf
+    sudo chown root:$docker_group /var/run/docker.sock
+    sudo systemctl daemon-reload
+    sudo systemctl restart docker
+}
+
 
 # main
 # ----------------------------------------------------------------------------
@@ -31,6 +51,7 @@ main() {
     echo "[INFO][$(date '+%Y-%m-%d %H:%M:%S')] 80.fast.aws.cli.compute.sh: START" >&2
     makeAWSCLIfast
     makeLUSTREfast
+    makeDockerfast
     echo "[INFO][$(date '+%Y-%m-%d %H:%M:%S')] 80.fast.aws.cli.compute.sh: STOP" >&2
 }
 
