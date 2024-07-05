@@ -26,7 +26,7 @@ installCustom() {
     apt-get -y autoremove
     sudo -v ; curl https://rclone.org/install.sh | sudo bash
 
-    wget https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.deb /tmp/mount-s3.deb
+    wget -P /tmp/ https://s3.amazonaws.com/mountpoint-s3-release/latest/x86_64/mount-s3.deb
     apt-get install /tmp/mount-s3.deb
 
     if [ -f /admin/config/weka_stateless_client.sh ]; then
