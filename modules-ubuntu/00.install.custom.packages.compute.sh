@@ -32,6 +32,9 @@ installCustom() {
     if [ -f /admin/config/weka_stateless_client.sh ]; then
         /admin/config/weka_stateless_client.sh
     fi
+
+    mkdir -p /mnt
+    chmod 1777 /mnt
 }
 
 # main
