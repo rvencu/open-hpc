@@ -241,17 +241,23 @@ Host sai-*
 # replace the <privkey> above with your home computer cluster private key
 
 Host sai-jumphost-int
-    HostName westint1.hpc.stability.ai
+    HostName int1.hpc.stability.ai
+    User \$USER
+    Port 22
+
+Host sai-jumphost-intcpu
+    HostName intcpu.hpc.stability.ai
     User \$USER
     Port 22
 # ==========================end permanent==========================
 
 # please modify the following for any new job or add more entries if you run multiple jobs
+# as ProxyJump use sai-jumphost for GPU jobs or sai-jumphost-intcpu for CPU jobs
 Host sai-vscode-direct
     Hostname \$1
     User \$USER
     Port \$2
-    ProxyJump jumphost-int
+    ProxyJump <jumphost>
     UserKnownHostsFile=/dev/null
     StrictHostKeyChecking no
 # make sure to match the proxyjump host name with the name of the second entry above
